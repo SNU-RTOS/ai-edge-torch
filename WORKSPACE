@@ -81,24 +81,29 @@ http_archive(
     ],
 )
 
-# TensorFlow repo should always go after the other external dependencies.
-# TF on 2024-07-18.
-_TENSORFLOW_GIT_COMMIT = "117a62ac439ed87eb26f67208be60e01c21960de"
-# curl -L https://github.com/tensorflow/tensorflow/archive/<TENSORFLOW_GIT_COMMIT>.tar.gz | shasum -a 256
-_TENSORFLOW_SHA256 = "2a1e56f9f83f99e2b9d01a184bc6f409209b36c98fb94b6d5db3f0ab20ec33f2"
-http_archive(
+# # TensorFlow repo should always go after the other external dependencies.
+# # TF on 2024-07-18.
+# _TENSORFLOW_GIT_COMMIT = "117a62ac439ed87eb26f67208be60e01c21960de"
+# # curl -L https://github.com/tensorflow/tensorflow/archive/<TENSORFLOW_GIT_COMMIT>.tar.gz | shasum -a 256
+# _TENSORFLOW_SHA256 = "2a1e56f9f83f99e2b9d01a184bc6f409209b36c98fb94b6d5db3f0ab20ec33f2"
+# http_archive(
+#     name = "org_tensorflow",
+#     urls = [
+#       "https://github.com/tensorflow/tensorflow/archive/%s.tar.gz" % _TENSORFLOW_GIT_COMMIT,
+#     ],
+#     patches = [
+#         "@//bazel:org_tensorflow_system_python.diff",
+#     ],
+#     patch_args = [
+#         "-p1",
+#     ],
+#     strip_prefix = "tensorflow-%s" % _TENSORFLOW_GIT_COMMIT,
+#     sha256 = _TENSORFLOW_SHA256,
+# )
+
+local_repository(
     name = "org_tensorflow",
-    urls = [
-      "https://github.com/tensorflow/tensorflow/archive/%s.tar.gz" % _TENSORFLOW_GIT_COMMIT,
-    ],
-    patches = [
-        "@//bazel:org_tensorflow_system_python.diff",
-    ],
-    patch_args = [
-        "-p1",
-    ],
-    strip_prefix = "tensorflow-%s" % _TENSORFLOW_GIT_COMMIT,
-    sha256 = _TENSORFLOW_SHA256,
+    path = "/home/rtos/workspace/ghpark/tensorflow",  # 실제 로컬 TensorFlow 소스 경로로 수정하세요.
 )
 
 load("@org_tensorflow//tensorflow:workspace3.bzl", "tf_workspace3")
@@ -107,7 +112,7 @@ load("@org_tensorflow//tensorflow:workspace2.bzl", "tf_workspace2")
 tf_workspace2()
 
 # Android NDK location and version is auto-detected from $ANDROID_NDK_HOME environment variable
-android_ndk_repository(name = "androidndk")
+# android_ndk_repository(name = "androidndk")
 
 # Android SDK location and API is auto-detected from $ANDROID_HOME environment variable
-android_sdk_repository(name = "androidsdk")
+# android_sdk_repository(name = "androidsdk")

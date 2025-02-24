@@ -20,6 +20,7 @@ import pathlib
 
 from absl import app
 from absl import flags
+from absl import logging
 from ai_edge_torch.generative.examples.gemma import gemma2
 from ai_edge_torch.generative.utilities import converter
 from ai_edge_torch.generative.utilities.model_builder import ExportConfig
@@ -41,17 +42,17 @@ _OUTPUT_NAME_PREFIX = flags.DEFINE_string(
 )
 _PREFILL_SEQ_LENS = flags.DEFINE_multi_integer(
     'prefill_seq_lens',
-    (8, 64, 128, 256, 512, 1024),
+    (8, 64, 128, 256, 512),
     'List of the maximum sizes of prefill input tensors.',
 )
 _KV_CACHE_MAX_LEN = flags.DEFINE_integer(
     'kv_cache_max_len',
-    1280,
+    1024,
     'The maximum size of KV cache buffer, including both prefill and decode.',
 )
 _QUANTIZE = flags.DEFINE_bool(
     'quantize',
-    True,
+    False,
     'Whether the model should be quantized.',
 )
 _LORA_RANKS = flags.DEFINE_multi_integer(
@@ -62,9 +63,15 @@ _LORA_RANKS = flags.DEFINE_multi_integer(
 
 
 def main(_):
+  logging.info("Active absl flags:")
+  for key, value in flags.FLAGS.flag_values_dict().items():
+        logging.info(f"{key}: {value}")
+  print("\n\n======\n\n")
   pytorch_model = gemma2.build_2b_model(
       _CHECKPOINT_PATH.value, kv_cache_max_len=_KV_CACHE_MAX_LEN.value
   )
+  pytorch_model=pytorch_model.eval()
+  print(_QUANTIZE.value)
   converter.convert_to_tflite(
       pytorch_model,
       output_path=_OUTPUT_PATH.value,
@@ -74,6 +81,7 @@ def main(_):
       lora_ranks=_LORA_RANKS.value,
       export_config=ExportConfig(),
   )
+  
 
 
 if __name__ == '__main__':

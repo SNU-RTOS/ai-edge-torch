@@ -13,20 +13,20 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Example of converting a Phi-3.5 model to multi-signature tflite model."""
+"""Example of converting a Gemma2 model to multi-signature tflite model."""
 
 import os
 import pathlib
 
 from absl import app
 from absl import flags
-from ai_edge_torch.generative.examples.phi import phi3
+from ai_edge_torch.generative.examples.gemma import gemma2
 from ai_edge_torch.generative.utilities import converter
 from ai_edge_torch.generative.utilities.model_builder import ExportConfig
 
 _CHECKPOINT_PATH = flags.DEFINE_string(
     'checkpoint_path',
-    os.path.join(pathlib.Path.home(), 'Downloads/llm_data/phi3'),
+    os.path.join(pathlib.Path.home(), 'Downloads/llm_data/gemma2-2b'),
     'The path to the model checkpoint, or directory holding the checkpoint.',
 )
 _OUTPUT_PATH = flags.DEFINE_string(
@@ -36,7 +36,7 @@ _OUTPUT_PATH = flags.DEFINE_string(
 )
 _OUTPUT_NAME_PREFIX = flags.DEFINE_string(
     'output_name_prefix',
-    'phi3',
+    'gemma2',
     'The prefix of the output tflite model name.',
 )
 _PREFILL_SEQ_LENS = flags.DEFINE_multi_integer(
@@ -62,7 +62,7 @@ _LORA_RANKS = flags.DEFINE_multi_integer(
 
 
 def main(_):
-  pytorch_model = phi3.build_model(
+  pytorch_model = gemma2.build_2b_model(
       _CHECKPOINT_PATH.value, kv_cache_max_len=_KV_CACHE_MAX_LEN.value
   )
   converter.convert_to_tflite(

@@ -106,7 +106,9 @@ def convert_signatures(
   """
   if _tfl_converter_flags is None:
     _tfl_converter_flags = {}
-
+    
+  for sig in signatures:
+      sig.module.eval()
   _warn_training_modules(signatures)
 
   def export(**kwargs):

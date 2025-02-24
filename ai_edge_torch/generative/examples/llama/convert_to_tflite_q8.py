@@ -13,20 +13,26 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Example of converting a Phi-3.5 model to multi-signature tflite model."""
+"""Example of converting Llama 3.2 1B model to multi-signature tflite model."""
 
 import os
 import pathlib
 
 from absl import app
 from absl import flags
-from ai_edge_torch.generative.examples.phi import phi3
+from ai_edge_torch.generative.examples.llama import llama
 from ai_edge_torch.generative.utilities import converter
 from ai_edge_torch.generative.utilities.model_builder import ExportConfig
 
+_MODEL_SIZE = flags.DEFINE_enum(
+    'model_size',
+    '3b',
+    ['1b', '3b'],
+    'The size of the model to verify.',
+)
 _CHECKPOINT_PATH = flags.DEFINE_string(
     'checkpoint_path',
-    os.path.join(pathlib.Path.home(), 'Downloads/llm_data/phi3'),
+    os.path.join(pathlib.Path.home(), 'Downloads/llm_data/llama'),
     'The path to the model checkpoint, or directory holding the checkpoint.',
 )
 _OUTPUT_PATH = flags.DEFINE_string(
@@ -36,12 +42,13 @@ _OUTPUT_PATH = flags.DEFINE_string(
 )
 _OUTPUT_NAME_PREFIX = flags.DEFINE_string(
     'output_name_prefix',
-    'phi3',
+    'llama',
     'The prefix of the output tflite model name.',
 )
 _PREFILL_SEQ_LENS = flags.DEFINE_multi_integer(
     'prefill_seq_lens',
-    (8, 64, 128, 256, 512),
+    #(256),
+    (8, 64, 128, 256),
     'List of the maximum sizes of prefill input tensors.',
 )
 _KV_CACHE_MAX_LEN = flags.DEFINE_integer(
@@ -51,7 +58,7 @@ _KV_CACHE_MAX_LEN = flags.DEFINE_integer(
 )
 _QUANTIZE = flags.DEFINE_bool(
     'quantize',
-    True,
+    False, # True
     'Whether the model should be quantized.',
 )
 _LORA_RANKS = flags.DEFINE_multi_integer(
@@ -60,9 +67,14 @@ _LORA_RANKS = flags.DEFINE_multi_integer(
     'If set, the model will be converted with the provided list of LoRA ranks.',
 )
 
+_BUILDER = {
+    '1b': llama.build_1b_model,
+    '3b': llama.build_3b_model,
+}
+
 
 def main(_):
-  pytorch_model = phi3.build_model(
+  pytorch_model = _BUILDER[_MODEL_SIZE.value](
       _CHECKPOINT_PATH.value, kv_cache_max_len=_KV_CACHE_MAX_LEN.value
   )
   converter.convert_to_tflite(

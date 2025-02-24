@@ -41,12 +41,12 @@ _OUTPUT_NAME_PREFIX = flags.DEFINE_string(
 )
 _PREFILL_SEQ_LENS = flags.DEFINE_multi_integer(
     'prefill_seq_lens',
-    (8, 64, 128, 256, 512, 1024),
+    (8, 64, 128, 256, 512),
     'List of the maximum sizes of prefill input tensors.',
 )
 _KV_CACHE_MAX_LEN = flags.DEFINE_integer(
     'kv_cache_max_len',
-    1280,
+    1024,
     'The maximum size of KV cache buffer, including both prefill and decode.',
 )
 _QUANTIZE = flags.DEFINE_bool(

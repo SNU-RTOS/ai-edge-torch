@@ -20,13 +20,14 @@ import pathlib
 
 from absl import app
 from absl import flags
+from absl import logging
 from ai_edge_torch.generative.examples.llama import llama
 from ai_edge_torch.generative.utilities import converter
 from ai_edge_torch.generative.utilities.model_builder import ExportConfig
 
 _MODEL_SIZE = flags.DEFINE_enum(
     'model_size',
-    '1b',
+    '3b',
     ['1b', '3b'],
     'The size of the model to verify.',
 )
@@ -47,17 +48,17 @@ _OUTPUT_NAME_PREFIX = flags.DEFINE_string(
 )
 _PREFILL_SEQ_LENS = flags.DEFINE_multi_integer(
     'prefill_seq_lens',
-    (8, 64, 128, 256, 512, 1024),
+    (8, 64, 128, 256, 512),
     'List of the maximum sizes of prefill input tensors.',
 )
 _KV_CACHE_MAX_LEN = flags.DEFINE_integer(
     'kv_cache_max_len',
-    1280,
+    1024,
     'The maximum size of KV cache buffer, including both prefill and decode.',
 )
 _QUANTIZE = flags.DEFINE_bool(
     'quantize',
-    True,
+    False,
     'Whether the model should be quantized.',
 )
 _LORA_RANKS = flags.DEFINE_multi_integer(
@@ -73,6 +74,10 @@ _BUILDER = {
 
 
 def main(_):
+  logging.info("Active absl flags:")
+  for key, value in flags.FLAGS.flag_values_dict().items():
+        logging.info(f"{key}: {value}")
+  print("\n\n======\n\n")
   pytorch_model = _BUILDER[_MODEL_SIZE.value](
       _CHECKPOINT_PATH.value, kv_cache_max_len=_KV_CACHE_MAX_LEN.value
   )
