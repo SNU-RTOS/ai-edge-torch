@@ -8,6 +8,9 @@ build --enable_platform_specific_config
 build --define xnnpack_use_latest_ops=true
 build --define=xnn_enable_avx512amx=false
 build --define=xnn_enable_avx512fp16=false
+build --define xnn_enable_kleidiai=false
+build --nocheck_visibility
+build --enable_bzlmod=false
 
 # Linux
 build:linux --cxxopt=-std=c++17
