@@ -19,7 +19,6 @@ from typing import Optional
 
 from ai_edge_torch.generative.layers import kv_cache as kv_utils
 import ai_edge_torch.generative.layers.model_config as cfg
-import ai_edge_torch.generative.layers.rotary_position_embedding as rotary_pos_emb
 from ai_edge_torch.generative.utilities import model_builder
 import ai_edge_torch.generative.utilities.loader as loading_utils
 import torch
@@ -56,28 +55,34 @@ class Decoder(model_builder.DecoderOnlyModel):
       input_embeds: torch.Tensor = None,
       mask: Optional[torch.Tensor] = None,
       export_config: Optional[model_builder.ExportConfig] = None,
-      called_by_generate: bool = True,
   ) -> dict[torch.Tensor, kv_utils.KVCache]:
     if input_embeds is None:
-      return super().forward(tokens, input_pos, kv_cache)
+      return super().forward(
+          tokens, input_pos, kv_cache, mask, export_config=export_config
+      )
 
     assert input_embeds is not None
 
-    repo_pos = input_pos + 1  # PaliGemma position is 1-based.
+    rope_pos = input_pos + 1  # PaliGemma position is 1-based.
     # ROPE parameters for all attn_configs are the same. Take the first one.
     attn_config = self.config.block_config(0).attn_config
     n_elem = int(attn_config.rotary_percentage * attn_config.head_dim)
-    rope = rotary_pos_emb.build_rope(repo_pos, n_elem, attn_config.rotary_base)
+    rope = self.config.build_rope(rope_pos, n_elem, attn_config.rotary_base)
 
     # The first part of input_embeds are image embeddings. Diagonal causal mask
     # doesn't work here.
-    embeds_len = input_embeds.shape[1]
     if mask is None:
+      embeds_len = input_embeds.shape[1]
       mask = torch.zeros(embeds_len, self.config.kv_cache_max)
       mask[:, embeds_len:] = float("-inf")
 
     return self._forward_with_embeds(
-        input_embeds, rope, mask, input_pos, kv_cache
+        input_embeds,
+        rope,
+        mask,
+        input_pos,
+        kv_cache,
+        export_config=export_config,
     )
 
 

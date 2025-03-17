@@ -17,7 +17,7 @@
 
 import dataclasses
 import enum
-from typing import Callable, Optional, Sequence, Union
+from typing import Callable, Optional, Sequence, Tuple, Union
 from ai_edge_torch.generative.layers import rotary_position_embedding
 
 @enum.unique
@@ -174,9 +174,13 @@ class ImageEmbeddingConfig:
   """Image embedding parameters."""
 
   channels: int
-  # All images should be normalized to the size of [image_size * image_size].
-  image_size: int
+  # All images should be normalized to image_size * image_size if image_size is
+  # a single integer, or image_size[0] (height) * image_size[1] (width) if
+  # image_size is a tuple of 2 integers.
+  image_size: Union[int | Tuple[int, int]]
   patch_size: int
+  # Meaningful only when image embedding is Conv3d.
+  temporal_patch_size: Optional[int] = None
 
 
 @dataclasses.dataclass
@@ -203,7 +207,7 @@ class ModelConfig:
   embedding_use_bias: bool = False
   # Image embedding parameters.
   image_embedding: Optional[ImageEmbeddingConfig] = None
-  # Number of image tokens 
+  # Number of image tokens
   num_mm_tokens_per_image: Optional[int] = None
   # Use bias term within LLM's HEAD.
   lm_head_use_bias: bool = False
@@ -215,9 +219,6 @@ class ModelConfig:
 
   # The maximum sequence length of the KV cache. Should not exceed max_seq_len.
   kv_cache_max_len: int = 0
-
-  # Default batch size of the exported model. Default value is 1.
-  batch_size: int = 1
 
   # Softcap on the model output logits.
   final_logit_softcap: Optional[float] = None

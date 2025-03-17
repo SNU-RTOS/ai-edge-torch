@@ -1,4 +1,4 @@
-# Copyright 2024 The AI Edge Torch Authors.
+# Copyright 2025 The AI Edge Torch Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,14 +13,14 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Verifies the reauthored TinyLlama-1.1B model."""
+"""Verifies the reauthored Phi-4 model."""
 
 import logging
 import pathlib
 
 from absl import app
 from absl import flags
-from ai_edge_torch.generative.examples.tiny_llama import tiny_llama
+from ai_edge_torch.generative.examples.phi import phi4
 from ai_edge_torch.generative.utilities import transformers_verifier
 from ai_edge_torch.generative.utilities import verifier
 import transformers
@@ -28,7 +28,7 @@ import transformers
 
 _PROMPTS = flags.DEFINE_multi_string(
     "prompts",
-    "Show me the program to add 2 and 3.",
+    "Instruct: Write an email about the weather Output:",
     "The input prompts to generate answers.",
 )
 _MAX_NEW_TOKENS = flags.DEFINE_integer(
@@ -39,11 +39,9 @@ _MAX_NEW_TOKENS = flags.DEFINE_integer(
 
 
 def main(_):
-  checkpoint = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  checkpoint = "microsoft/Phi-4-mini-instruct"
   logging.info("Loading the original model from: %s", checkpoint)
-  original_model = transformers.AutoModelForCausalLM.from_pretrained(
-      checkpoint, trust_remote_code=True
-  )
+  original_model = transformers.AutoModelForCausalLM.from_pretrained(checkpoint)
 
   # Locate the cached dir.
   cached_config_file = transformers.utils.cached_file(
@@ -51,7 +49,7 @@ def main(_):
   )
   reauthored_checkpoint = pathlib.Path(cached_config_file).parent
   logging.info("Building the reauthored model from: %s", reauthored_checkpoint)
-  reauthored_model = tiny_llama.build_model(str(reauthored_checkpoint))
+  reauthored_model = phi4.build_model(reauthored_checkpoint)
 
   logging.info("Loading the tokenizer from: %s", checkpoint)
   tokenizer = transformers.AutoTokenizer.from_pretrained(checkpoint)
@@ -64,7 +62,6 @@ def main(_):
       tokenizer=verifier.TokenizerWrapper(tokenizer),
       generate_prompts=_PROMPTS.value,
       max_new_tokens=_MAX_NEW_TOKENS.value,
-      atol=1e-04,
   )
 
 

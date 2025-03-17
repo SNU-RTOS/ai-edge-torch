@@ -1,4 +1,4 @@
-# Copyright 2024 The AI Edge Torch Authors.
+# Copyright 2025 The AI Edge Torch Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,27 +13,21 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Verifies the reauthored PaliGemma 3B model."""
+"""Verifies the reauthored Qwen 2.5 VL model."""
 
 import logging
 import pathlib
+
 from absl import app
 from absl import flags
-from ai_edge_torch.generative.examples.paligemma import paligemma
+from ai_edge_torch.generative.examples.qwen_vl import qwen_vl
 from ai_edge_torch.generative.layers import kv_cache
 from ai_edge_torch.generative.utilities import verifier
-import kagglehub
 from PIL import Image
 import requests
 import torch
 import transformers
 
-_VERSION = flags.DEFINE_enum(
-    "version",
-    "2",
-    ["1", "2"],
-    "The version of PaliGemma model to verify.",
-)
 _IMAGE_URL = flags.DEFINE_string(
     "image_url",
     "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true",
@@ -41,7 +35,7 @@ _IMAGE_URL = flags.DEFINE_string(
 )
 _PROMPTS = flags.DEFINE_string(
     "prompts",
-    "<image><bos>describe en",
+    "<|vision_start|><|image_pad|><|vision_end|>Describe the image.<|im_end|>",
     "The input prompts to generate answers.",
 )
 _MAX_NEW_TOKENS = flags.DEFINE_integer(
@@ -50,45 +44,32 @@ _MAX_NEW_TOKENS = flags.DEFINE_integer(
     "The maximum size of the generated tokens.",
 )
 
-_CHECKPOINT = {
-    "1": "google/paligemma-3b-mix-224",
-    "2": "google/paligemma-2/transformers/paligemma2-3b-pt-224",
-}
 
-
-class ReauthoredPaliGemmaWrapper(verifier.ReauthoredModelWrapper):
-  """Reauthored PaliGemma model wrapper."""
+class ReauthoredQwenVLWrapper(verifier.ReauthoredModelWrapper):
+  """Reauthored Qwen VL model wrapper."""
 
   def _init_kv_cache(self):
     return kv_cache.KVCache.from_model_config(self.model.config.decoder_config)
 
 
 def main(_):
-  if _VERSION.value == "1":
-    checkpoint = _CHECKPOINT[_VERSION.value]
-    # Locate the cached dir.
-    cached_config_file = transformers.utils.cached_file(
-        checkpoint, transformers.utils.CONFIG_NAME
-    )
-    reauthored_checkpoint = str(pathlib.Path(cached_config_file).parent)
-  else:
-    checkpoint = kagglehub.model_download(_CHECKPOINT[_VERSION.value])
-    reauthored_checkpoint = checkpoint
-
+  checkpoint = "Qwen/Qwen2.5-VL-3B-Instruct"
   logging.info("Loading the original model from: %s", checkpoint)
   original_model = (
-      transformers.PaliGemmaForConditionalGeneration.from_pretrained(checkpoint)
+      transformers.Qwen2_5_VLForConditionalGeneration.from_pretrained(
+          checkpoint
+      )
   )
 
-  logging.info("Building the reauthored model from: %s", reauthored_checkpoint)
-  reauthored_model = paligemma.build_model(
-      reauthored_checkpoint, version=int(_VERSION.value)
+  # Locate the cached dir.
+  cached_config_file = transformers.utils.cached_file(
+      checkpoint, transformers.utils.CONFIG_NAME
   )
+  reauthored_checkpoint = pathlib.Path(cached_config_file).parent
+  logging.info("Building the reauthored model from: %s", reauthored_checkpoint)
+  reauthored_model = qwen_vl.build_model(str(reauthored_checkpoint))
 
   logging.info("Loading the processor from: %s", checkpoint)
-  # It works only when GemmaTokenizerFast is available. In some environments,
-  # use_fast=False doeesn't work either if the tokenizer cannot load the
-  # sentencepiece model file properly.
   processor = transformers.AutoProcessor.from_pretrained(checkpoint)
 
   logging.info("Loading the image from: %s", _IMAGE_URL.value)
@@ -98,13 +79,20 @@ def main(_):
   logging.info("Verifying the reauthored model with model.forward()...")
   logging.info("Forwarding the original model...")
   outputs_original = original_model.forward(
-      input_ids=inputs["input_ids"], pixel_values=inputs["pixel_values"]
+      input_ids=inputs["input_ids"],
+      pixel_values=inputs["pixel_values"],
+      image_grid_thw=inputs["image_grid_thw"],
   )
   outputs_original = outputs_original.logits
   logging.info("outputs_original: %s", outputs_original)
 
   logging.info("Forwarding the reauthored model...")
-  wrapped_reauthored_model = ReauthoredPaliGemmaWrapper(reauthored_model)
+  wrapped_reauthored_model = ReauthoredQwenVLWrapper(reauthored_model)
+  grid_thw = inputs["image_grid_thw"].tolist()
+  config = reauthored_model.config.image_encoder_config.image_embedding
+  reauthored_model.image_encoder.set_image_size(
+      (grid_thw[0][1] * config.patch_size, grid_thw[0][2] * config.patch_size)
+  )
   outputs_reauthored = wrapped_reauthored_model.forward(
       tokens=inputs["input_ids"],
       pixel_values=inputs["pixel_values"],
@@ -112,7 +100,7 @@ def main(_):
   logging.info("outputs_reauthored: %s", outputs_reauthored)
 
   try:
-    assert torch.allclose(outputs_original, outputs_reauthored, atol=1e-02)
+    assert torch.allclose(outputs_original, outputs_reauthored, atol=1e-01)
   except AssertionError as e:
     logging.error("*** FAILED *** verify with forward()")
     raise e
@@ -122,7 +110,7 @@ def main(_):
   logging.info("Verifying the reauthored model with model.generate()...")
   logging.info("Generating answer with the original model...")
   outputs_original = original_model.generate(
-      **inputs, max_new_tokens=_MAX_NEW_TOKENS.value, do_sample=False
+      **inputs, max_new_tokens=_MAX_NEW_TOKENS.value
   )
   response_original = processor.decode(
       outputs_original[0], skip_special_tokens=True

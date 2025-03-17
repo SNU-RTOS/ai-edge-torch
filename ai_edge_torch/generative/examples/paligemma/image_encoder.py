@@ -60,6 +60,7 @@ class SiglipVisionEncoder(nn.Module):
         kernel_size=config.image_embedding.patch_size,
         stride=config.image_embedding.patch_size,
         padding=0,
+        bias=config.embedding_use_bias,
     )
     num_patches = (
         config.image_embedding.image_size // config.image_embedding.patch_size
@@ -135,9 +136,7 @@ def get_image_encoder_config() -> cfg.ModelConfig:
       image_embedding=image_embedding_config,
       block_configs=block_config,
       final_norm_config=norm_config,
-      # TODO: b/377051577 - Once RemoveSDPACompositeZeroMaskPass is removed,
-      # enable_hlfb can be set to True. See b/383865404#comment3 for details.
-      # enable_hlfb=True,
+      enable_hlfb=True,
   )
   return config
 

@@ -13,14 +13,14 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Example of building a Gemma2 model."""
+"""Example of building a Decoder for Gemma3 model."""
 
 from typing import List, Optional, Tuple
 
-from ai_edge_torch.generative.layers import attention
 from ai_edge_torch.generative.layers import builder
-from ai_edge_torch.generative.layers import kv_cache as kv_utils
 import ai_edge_torch.generative.layers.attention_utils as attn_utils
+from ai_edge_torch.generative.layers.experimental import attention
+from ai_edge_torch.generative.layers.experimental import kv_cache as kv_utils
 import ai_edge_torch.generative.layers.model_config as cfg
 import ai_edge_torch.generative.layers.rotary_position_embedding as rotary_pos_emb
 from ai_edge_torch.generative.utilities import model_builder
@@ -28,12 +28,36 @@ import ai_edge_torch.generative.utilities.loader as loading_utils
 import torch
 from torch import nn
 
+
 TENSOR_NAMES = loading_utils.ModelLoader.TensorNames(
+    ff_up_proj="model.layers.{}.mlp.up_proj",
+    ff_down_proj="model.layers.{}.mlp.down_proj",
+    ff_gate_proj="model.layers.{}.mlp.gate_proj",
+    attn_query_proj="model.layers.{}.self_attn.q_proj",
+    attn_key_proj="model.layers.{}.self_attn.k_proj",
+    attn_value_proj="model.layers.{}.self_attn.v_proj",
+    attn_output_proj="model.layers.{}.self_attn.o_proj",
+    attn_query_norm="model.layers.{}.self_attn.q_norm",
+    attn_key_norm="model.layers.{}.self_attn.k_norm",
+    pre_attn_norm="model.layers.{}.input_layernorm",
+    post_attn_norm="model.layers.{}.post_attention_layernorm",
+    pre_ff_norm="model.layers.{}.pre_feedforward_layernorm",
+    post_ff_norm="model.layers.{}.post_feedforward_layernorm",
+    embedding="model.embed_tokens",
+    final_norm="model.norm",
+    lm_head=None,
+)
+
+# Please don't use tensor mapping for converting checkpoints hosted on Kaggle
+# or HuggingFace. Will be removed in the future.
+TENSOR_NAMES_TO_BE_REMOVED = loading_utils.ModelLoader.TensorNames(
     ff_up_proj="model.layers.{}.mlp.up_proj",
     ff_down_proj="model.layers.{}.mlp.down_proj",
     ff_gate_proj="model.layers.{}.mlp.gate_proj",
     attn_fused_qkv_proj="model.layers.{}.self_attn.qkv_proj",
     attn_output_proj="model.layers.{}.self_attn.o_proj",
+    attn_query_norm="model.layers.{}.self_attn.query_norm",
+    attn_key_norm="model.layers.{}.self_attn.key_norm",
     pre_attn_norm="model.layers.{}.input_layernorm",
     post_attn_norm="model.layers.{}.post_attention_layernorm",
     pre_ff_norm="model.layers.{}.pre_feedforward_layernorm",
@@ -43,24 +67,8 @@ TENSOR_NAMES = loading_utils.ModelLoader.TensorNames(
     lm_head=None,
 )
 
-ALT_TENSOR_NAMES = loading_utils.ModelLoader.TensorNames(
-    ff_up_proj="model.layers.{}.mlp.up_proj",
-    ff_down_proj="model.layers.{}.mlp.down_proj",
-    ff_gate_proj="model.layers.{}.mlp.gate_proj",
-    attn_query_proj="model.layers.{}.self_attn.q_proj",
-    attn_key_proj="model.layers.{}.self_attn.k_proj",
-    attn_value_proj="model.layers.{}.self_attn.v_proj",
-    attn_output_proj="model.layers.{}.self_attn.o_proj",
-    pre_attn_norm="model.layers.{}.input_layernorm",
-    post_attn_norm="model.layers.{}.post_attention_layernorm",
-    pre_ff_norm="model.layers.{}.pre_feedforward_layernorm",
-    post_ff_norm="model.layers.{}.post_feedforward_layernorm",
-    embedding="model.embed_tokens",
-    final_norm="model.norm",
-)
 
-
-class Gemma2Block(attention.TransformerBlock):
+class DecoderBlock(attention.TransformerBlock):
 
   def forward(
       self,
@@ -68,9 +76,9 @@ class Gemma2Block(attention.TransformerBlock):
       rope: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
       mask: Optional[torch.Tensor] = None,
       input_pos: Optional[torch.Tensor] = None,
-      kv_cache: kv_utils.KVCacheEntry = None,
-  ) -> Tuple[torch.Tensor, Optional[kv_utils.KVCacheEntry]]:
-    """Forward function of the Gemma2Block.
+      kv_cache: kv_utils.KVCacheEntryBase = None,
+  ) -> Tuple[torch.Tensor, Optional[kv_utils.KVCacheEntryBase]]:
+    """Forward function of the Gemma3Block.
 
     Exactly the same as TransformerBlock but we call the post-attention norm
     immediately after attention and not after the residual pointwise addition.
@@ -95,8 +103,8 @@ class Gemma2Block(attention.TransformerBlock):
     return output, kv
 
 
-class Gemma2(nn.Module):
-  """A Gemma2 model built from the Edge Generative API layers."""
+class Decoder(nn.Module):
+  """A Gemma3 decoder model built from the Edge Generative API layers."""
 
   def __init__(self, config: cfg.ModelConfig):
     super().__init__()
@@ -110,10 +118,10 @@ class Gemma2(nn.Module):
         config.vocab_size,
         bias=config.lm_head_use_bias,
     )
-    # Gemma2 re-uses the embedding as the head projection layer.
+    # Gemma3 re-uses the embedding as the head projection layer.
     self.lm_head.weight.data = self.tok_embedding.weight.data
     self.transformer_blocks = nn.ModuleList(
-        Gemma2Block(config.block_config(idx), config)
+        DecoderBlock(config.block_config(idx), config)
         for idx in range(config.num_layers)
     )
     self.final_norm = builder.build_norm(
@@ -123,7 +131,7 @@ class Gemma2(nn.Module):
     self.mask_cache = attn_utils.build_causal_mask_cache(
         size=config.kv_cache_max,
     )
-    # Gemma2 has same hyper parameters for each layer except for attention
+    # Gemma3 has same hyper parameters for each layer except for attention
     # types. Use the first layer.
     attn_config = config.block_config(0).attn_config
     self.sliding_window_mask_cache = attn_utils.build_sliding_window_mask_cache(
@@ -133,33 +141,129 @@ class Gemma2(nn.Module):
     self.config = config
 
   def get_attention_mask(
-      self, attn_type: cfg.AttentionType, input_pos: torch.Tensor
+      self,
+      attn_type: cfg.AttentionType,
+      input_pos: torch.Tensor,
   ) -> torch.Tensor:
     if attn_type == cfg.AttentionType.LOCAL_SLIDING:
       return self.sliding_window_mask_cache.index_select(2, input_pos)
     return self.mask_cache.index_select(2, input_pos)
+
+  def get_local_global_attention_mask(
+      self,
+      attention_mask: torch.Tensor,
+      attn_type: cfg.AttentionType,
+      segment_pos: torch.Tensor,
+      sliding_window_size: int,
+  ) -> torch.Tensor:
+    """Returns the attention mask for the current batch (PyTorch)."""
+    if attn_type == cfg.AttentionType.LOCAL_SLIDING:
+      sliding_mask = self.create_sliding_mask(
+          segment_pos=segment_pos,
+          cache_len=attention_mask.shape[-1],
+          sliding_window_size=sliding_window_size,
+      )
+      # Combine masks using logical AND (min in this case).
+      combined_mask = torch.min(attention_mask, sliding_mask)
+      return combined_mask
+    return attention_mask
+
+  def create_sliding_mask(
+      self,
+      segment_pos: torch.Tensor,  # [B, L]
+      cache_len: int,
+      sliding_window_size: int,
+  ) -> torch.Tensor:
+    """Creates mask for sliding window attention (PyTorch)."""
+    cache_positions = torch.tensor(
+        [i for i in range(cache_len)], dtype=torch.int32
+    )
+    cache_positions = cache_positions.view(1, 1, -1)  # [1, 1, cache_len]
+    segment_pos_expanded = segment_pos.clone().unsqueeze(-1)  # [B, seq_len, 1]
+
+    # Create boolean masks for window boundaries.
+    left_boundary = cache_positions > segment_pos_expanded - sliding_window_size
+    right_boundary = (
+        cache_positions < segment_pos_expanded + sliding_window_size
+    )
+
+    # Combine boolean masks (AND).
+    sliding_mask_bool = left_boundary & right_boundary
+
+    # Convert boolean mask to float mask with 0 and -inf.
+    sliding_mask = torch.where(
+        sliding_mask_bool,
+        torch.zeros_like(sliding_mask_bool, dtype=torch.float),
+        torch.full_like(sliding_mask_bool, float("-inf"), dtype=torch.float),
+    )
+
+    return sliding_mask
+
+  def compose_mask(
+      self,
+      mask: torch.Tensor,
+      pixel_mask: torch.Tensor,
+      attn_type: cfg.AttentionType,
+  ) -> torch.Tensor:
+    mask = mask == 0
+    if attn_type == cfg.AttentionType.LOCAL_SLIDING:
+      mask = torch.logical_and(mask, pixel_mask)
+    else:
+      mask = torch.logical_or(mask, pixel_mask)
+    mask = torch.where(mask, 0, float("-inf"))
+    return mask
+
+  def build_pixel_mask(self, image_indices: torch.Tensor):
+    pixel_mask = image_indices >= 0
+    max_seq_len = self.config.kv_cache_max
+    if pixel_mask.size(1) < max_seq_len:
+      pixel_mask = torch.cat(
+          [
+              pixel_mask,
+              torch.zeros(
+                  (pixel_mask.size(0), max_seq_len - pixel_mask.size(1))
+              ),
+          ],
+          dim=1,
+      )
+    pixel_mask = torch.logical_and(
+        pixel_mask.unsqueeze(1), pixel_mask.unsqueeze(-1)
+    )
+    return pixel_mask.unsqueeze(1)
 
   @torch.inference_mode
   def forward(
       self,
       tokens: torch.Tensor,
       input_pos: torch.Tensor,
-      kv_cache: kv_utils.KVCache,
+      kv_cache: kv_utils.KVCacheBase,
+      input_embeds: Optional[torch.Tensor] = None,
       mask: Optional[torch.Tensor] = None,
+      image_indices: Optional[torch.Tensor] = None,
       export_config: Optional[model_builder.ExportConfig] = None,
-  ) -> dict[torch.Tensor, kv_utils.KVCache]:
-    _, seq_len = tokens.size()
-    assert self.config.max_seq_len >= seq_len, (
-        f"Cannot forward sequence of length {seq_len}, max seq length is only"
-        f" {self.config.max_seq_len}"
-    )
+  ) -> dict[torch.Tensor, kv_utils.KVCacheBase]:
 
-    # token embeddings of shape (b, t, n_embd)
-    input_embeds = self.tok_embedding(tokens)
+    pixel_mask = None
+    if input_embeds is None:
+      # token embeddings of shape (b, t, n_embd)
+      input_embeds = self.tok_embedding(tokens)
+      if self.config.embedding_scale is not None:
+        input_embeds = input_embeds * self.config.embedding_scale
+    if image_indices is not None:
+      pixel_mask = self.build_pixel_mask(image_indices)
     # RoPE parameters are the same for all blocks. Use the first layer.
     attn_config = self.config.block_config(0).attn_config
     n_elem = int(attn_config.rotary_percentage * attn_config.head_dim)
-    rope = rotary_pos_emb.build_rope(input_pos, n_elem, attn_config.rotary_base)
+    # Different rotary base for global and local attention
+    # based on attention pattern
+    rope = [
+        rotary_pos_emb.build_rope(
+            input_pos,
+            attn_config.head_dim,
+            self.config.block_config(i).attn_config.rotary_base,
+        )
+        for i in range(self.config.num_layers)
+    ]
     if mask is None:
       mask = [
           self.get_attention_mask(
@@ -169,36 +273,55 @@ class Gemma2(nn.Module):
       ]
 
     return self._forward_with_embeds(
-        input_embeds, rope, mask, input_pos, kv_cache, export_config
+        input_embeds, rope, mask, input_pos, kv_cache, pixel_mask, export_config
     )
 
   def _forward_with_embeds(
       self,
       input_embeds: torch.Tensor,
-      rope: Tuple[torch.Tensor, torch.Tensor],
+      rope: List[Tuple[torch.Tensor, torch.Tensor]],
       mask: torch.Tensor | List[torch.Tensor],
       input_pos: torch.Tensor,
-      kv_cache: kv_utils.KVCache,
+      kv_cache: kv_utils.KVCacheBase,
+      pixel_mask: Optional[torch.Tensor] = None,
       export_config: Optional[model_builder.ExportConfig] = None,
-  ) -> dict[torch.Tensor, kv_utils.KVCache]:
+  ) -> dict[torch.Tensor, kv_utils.KVCacheBase]:
     """Forwards the model with input embeddings."""
     assert len(self.transformer_blocks) == len(kv_cache.caches), (
         "The number of transformer blocks and the number of KV cache entries"
         " must be the same."
     )
 
-    if self.config.embedding_scale is not None:
-      input_embeds = input_embeds * self.config.embedding_scale
     x = input_embeds
+
+    if pixel_mask is None:
+      mask = [
+          self.get_local_global_attention_mask(
+              mask,
+              self.config.block_config(i).attn_config.attn_type,
+              input_pos,
+              self.config.block_config(i).attn_config.sliding_window_size,
+          )
+          for i in range(self.config.num_layers)
+      ]
+    else:
+      pixel_mask = pixel_mask.index_select(2, input_pos)
+      mask = [
+          self.compose_mask(
+              mask[i],
+              pixel_mask,
+              self.config.block_config(i).attn_config.attn_type,
+          )
+          for i in range(self.config.num_layers)
+      ]
     updated_kv_entries = []
     for i, block in enumerate(self.transformer_blocks):
       mask_entry = mask[i] if isinstance(mask, list) else mask
       kv_entry = kv_cache.caches[i] if kv_cache else None
-      x, kv_entry = block(x, rope, mask_entry, input_pos, kv_entry)
+      x, kv_entry = block(x, rope[i], mask_entry, input_pos, kv_entry)
       if kv_entry:
         updated_kv_entries.append(kv_entry)
-    updated_kv_cache = kv_utils.KVCache(tuple(updated_kv_entries))
-
+    updated_kv_cache = kv_utils.KVCacheBase(tuple(updated_kv_entries))
     if export_config is not None:
       if (
           torch.numel(input_pos) > 1
@@ -208,50 +331,49 @@ class Gemma2(nn.Module):
 
     x = self.final_norm(x)
     res = self.lm_head(x)  # (b, t, vocab_size)
-    if self.config.final_logit_softcap is not None:
-      res = res / self.config.final_logit_softcap
-      res = torch.tanh(res)
-      res = res * self.config.final_logit_softcap
 
     return {"logits": res, "kv_cache": updated_kv_cache}
 
 
-def get_model_config_2b(kv_cache_max_len: int = 1024) -> cfg.ModelConfig:
-  """Returns the model config for a Gemma2 2B model.
+def get_decoder_config_1b(kv_cache_max_len: int = 2048) -> cfg.ModelConfig:
+  """Returns the model config for a Gemma3 1B model.
 
   Args:
     kv_cache_max_len (int): The maximum sequence length of the KV cache. Default
-      is 1024.
+      is 2048.
 
   Returns:
-    The model config for a Gemma 2B model.
+    The model config for a Gemma 1B model.
   """
   norm_config = cfg.NormalizationConfig(
       type=cfg.NormalizationType.RMS_NORM,
       epsilon=1e-6,
       zero_centered=True,
+      enable_hlfb=True,
   )
   ff_config = cfg.FeedForwardConfig(
       type=cfg.FeedForwardType.GATED,
       activation=cfg.ActivationConfig(cfg.ActivationType.GELU_TANH),
-      intermediate_size=9216,
+      intermediate_size=6 * 1152,
       pre_ff_norm_config=norm_config,
       post_ff_norm_config=norm_config,
   )
 
   def get_block_config(idx: int) -> cfg.TransformerBlockConfig:
     attn_config = cfg.AttentionConfig(
-        num_heads=8,
+        num_heads=4,
         head_dim=256,
-        num_query_groups=4,
-        rotary_base=10000,
+        num_query_groups=1,
+        rotary_base=1_000_000 if (idx + 1) % 6 == 0 else 10_000,
         rotary_percentage=1.0,
         qkv_transpose_before_split=True,
-        logit_softcap=50.0,
-        sliding_window_size=4096,
+        query_norm_config=norm_config,
+        key_norm_config=norm_config,
+        logit_softcap=None,
+        sliding_window_size=512,
         attn_type=(
             cfg.AttentionType.GLOBAL
-            if (idx + 1) % 2 == 0
+            if (idx + 1) % 6 == 0
             else cfg.AttentionType.LOCAL_SLIDING
         ),
     )
@@ -263,11 +385,11 @@ def get_model_config_2b(kv_cache_max_len: int = 1024) -> cfg.ModelConfig:
     )
 
   num_layers = 26
-  embedding_dim = 2304
+  embedding_dim = 1152
   config = cfg.ModelConfig(
-      vocab_size=256000,
+      vocab_size=262_144,
       num_layers=num_layers,
-      max_seq_len=8192,
+      max_seq_len=32_768,
       embedding_dim=embedding_dim,
       embedding_scale=embedding_dim**0.5,
       kv_cache_max_len=kv_cache_max_len,
@@ -275,13 +397,22 @@ def get_model_config_2b(kv_cache_max_len: int = 1024) -> cfg.ModelConfig:
       final_norm_config=norm_config,
       lm_head_use_bias=False,
       enable_hlfb=True,
-      final_logit_softcap=30.0,
+      final_logit_softcap=None,
   )
   return config
 
 
-def get_fake_model_config(kv_cache_max_len: int = 128) -> cfg.ModelConfig:
-  config = get_model_config_2b(kv_cache_max_len)
+def get_fake_decoder_config_1b(kv_cache_max_len: int = 128) -> cfg.ModelConfig:
+  """Returns a fake model config for a Gemma3 1B model.
+
+  Args:
+    kv_cache_max_len (int): The maximum sequence length of the KV cache. Default
+      is 128.
+
+  Returns:
+    A fake model config for a Gemma 1B model.
+  """
+  config = get_decoder_config_1b(kv_cache_max_len)
   config.vocab_size = 128
   config.num_layers = 2
   config.max_seq_len = 2 * kv_cache_max_len
@@ -296,19 +427,10 @@ def get_fake_model_config(kv_cache_max_len: int = 128) -> cfg.ModelConfig:
   return config
 
 
-def build_2b_model(checkpoint_path: str, **kwargs) -> nn.Module:
-  try:
-    return model_builder.build_decoder_only_model(
-        checkpoint_path=checkpoint_path,
-        config=get_model_config_2b(**kwargs),
-        tensor_names=TENSOR_NAMES,
-        model_class=Gemma2,
-    )
-  except KeyError as ke:
-    # Also attempt to load with an alternative naming scheme.
-    return model_builder.build_decoder_only_model(
-        checkpoint_path=checkpoint_path,
-        config=get_model_config_2b(**kwargs),
-        tensor_names=ALT_TENSOR_NAMES,
-        model_class=Gemma2,
-    )
+def build_model_1b(checkpoint_path: str, **kwargs) -> nn.Module:
+  return model_builder.build_decoder_only_model(
+      checkpoint_path=checkpoint_path,
+      config=get_decoder_config_1b(**kwargs),
+      tensor_names=TENSOR_NAMES,
+      model_class=Decoder,
+  )

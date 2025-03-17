@@ -13,11 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Example of converting a PaliGemma model to multi-signature tflite model.
-
-DISCLAIMER: It works only with ODML Torch conversion backend. Refer to
-https://github.com/google-ai-edge/ai-edge-torch/blob/main/docs/pytorch_converter/README.md#use-odml-torch-conversion-backend-experimental.
-"""
+"""Example of converting a PaliGemma model to multi-signature tflite model."""
 
 import os
 import pathlib
@@ -60,11 +56,6 @@ _KV_CACHE_MAX_LEN = flags.DEFINE_integer(
     1280,
     'The maximum size of KV cache buffer, including both prefill and decode.',
 )
-_PIXEL_VALUES_SIZE = flags.DEFINE_multi_integer(
-    'pixel_values_size',
-    [3, 224, 224],
-    'The size of prefill pixel values except the batch dimension.',
-)
 _QUANTIZE = flags.DEFINE_bool(
     'quantize',
     True,
@@ -79,12 +70,15 @@ def main(_):
       kv_cache_max_len=_KV_CACHE_MAX_LEN.value,
   )
 
+  config = pytorch_model.image_encoder.config.image_embedding
   converter.convert_to_tflite(
       pytorch_model,
       output_path=_OUTPUT_PATH.value,
       output_name_prefix=f'{_OUTPUT_NAME_PREFIX.value}_{_VERSION.value}',
       prefill_seq_len=_PREFILL_SEQ_LEN.value,
-      pixel_values_size=torch.Size(_PIXEL_VALUES_SIZE.value),
+      pixel_values_size=torch.Size(
+          [1, config.channels, config.image_size, config.image_size]
+      ),
       quantize=_QUANTIZE.value,
       config=pytorch_model.config.decoder_config,
       export_config=ExportConfig(),

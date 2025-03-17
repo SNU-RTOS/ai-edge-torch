@@ -26,13 +26,14 @@ found [here](https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct/tree/main).
 ## TinyLlama
 [TinyLlama](https://github.com/jzhang38/TinyLlama) is a popular OSS smaller version of Meta's Llama2 model, with only 1.1B parameters. [HuggingFace checkpoint](https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0).
 
-## Microsoft Phi-2 and 3.5-mini
-Microsoft Phi-2 and Phi-3.5-mini are also decoder-only LLMs with 2.7B and 3.82B
-parameters each. See details on
-[Kaggle](https://www.kaggle.com/models/Microsoft/phi/transformers/2) for Phi-2
-and [HuggingFace](https://huggingface.co/microsoft/Phi-3.5-mini-instruct) for
-Phi-3.5-mini. Note that the example of Phi-3.5-mini supports up to 4K tokens,
-not to 128K tokens which the original Phi-3.5 supports.
+## Microsoft Phi-2, 3.5-mini, and 4-mini
+Microsoft Phi-2, Phi-3.5-mini and Phi-4-mini are also decoder-only LLMs with
+2.7B, 3.82B and 3.84B parameters each. See details on
+[Kaggle](https://www.kaggle.com/models/Microsoft/phi/transformers/2) for Phi-2,
+[HuggingFace](https://huggingface.co/microsoft/Phi-3.5-mini-instruct) for Phi-3.5-mini,
+and [HuggingFace](https://huggingface.co/microsoft/Phi-4-mini-instruct) for Phi-4-mini.
+Note that the example of Phi-3.5-mini and Phi-4-mini supports up to 4K tokens,
+not to 128K tokens which the original models support.
 
 ## Apple OpenELM
 [Apple OpenELM](https://huggingface.co/apple/OpenELM) is also a decoder-only LLM
@@ -50,15 +51,27 @@ same architecture as SmolLM but it has been trained on improved training data.
 
 ## Qwen
 Alibaba's [Qwen 2.5](https://huggingface.co/collections/Qwen/qwen25-66e81a666513e518adb90d9e)
-0.5B, 1B, 3B modes are also provided as examples.
+0.5B, 1B, 3B models are also provided as examples.
+
+## Qwen VL
+Alibaba's [Qwen 2.5 VL](https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct)
+3B Instruct model is also provided as an multimodal model example.
 
 ## DeepSeek
 [DeepSeek-R1 distilled](https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B)
 model based on Qwen is also provided as an example.
 
 ## AMD-Llama-135m
-
 [AMD-Llama-135m](https://huggingface.co/amd/AMD-Llama-135m) is a 135M parameter model based on the Llama2 architecture and uses the same tokenizer as Llama2. It was trained on AMD Instinct MI250 accelerators. 
+
+## Moonshine
+[Moonshine](https://huggingface.co/UsefulSensors/moonshine) is a sequence-to-sequence ASR model trained by
+Useful Sensors, capable of transcribing English speech audio into English text. The model has two variants:
+tiny(27M) and base(61M).
+
+## T5
+[T5](https://huggingface.co/docs/transformers/en/model_doc/t5) is an encoder-decoder model pre-trained on a multi-task mixture of unsupervised and supervised tasks and for which each task is converted into a text-to-text format. t5-small
+has 60M parameters.
 
 ## Overall workflow
 To support a new LLM with the Edge Generative API, we need to go through the process of model (re)authoring, checkpoint mapping/loading, model quantization (via PT2E), model conversion to flatbuffer schema, model quality evaluation, benchmarking and on-device inference pipeline authoring.

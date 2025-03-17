@@ -19,17 +19,13 @@ This is an experimental implementation and is subject to change at any time.
 """
 
 import dataclasses
-from typing import List, Tuple
-
-from ai_edge_torch import hlfb
+import functools
+from typing import Any, List, Tuple, Type
 from ai_edge_torch.generative.layers import model_config
-from ai_edge_torch.generative.layers.experimental import types as types
-from ai_edge_torch.generative.utilities.dynamic_update_slice import dynamic_update_slice
+from ai_edge_torch.generative.layers.experimental import types
+from ai_edge_torch.generative.utilities import dynamic_update_slice as dus_utils
 import torch
-import torch.nn as nn
 import torch.utils._pytree as pytree
-
-BATCH_SIZE = 1
 
 
 @dataclasses.dataclass
@@ -37,7 +33,7 @@ class KVCacheEntryBase:
   """A single cache entry that includes K and V caches.
 
   The chaches are built based on the provided config with the shape of
-  (batch_size=1, kv_cache_max, num_query_groups, head_dim).
+  (batch_size, kv_cache_max, num_query_groups, head_dim).
   """
 
   k_cache: torch.Tensor
@@ -46,13 +42,11 @@ class KVCacheEntryBase:
   @classmethod
   def _from_model_config(
       cls,
-      kv_cache_max: int,
-      config: model_config.AttentionConfig,
-      k_shape: Tuple,
-      v_shape: Tuple,
+      k_shape: Tuple[int, ...],
+      v_shape: Tuple[int, ...],
       dtype: torch.dtype = torch.float32,
       device: torch.device = None,
-  ) -> "KVCacheEntryBase":
+  ):
     """Build an instance of the class based on model config."""
     k = torch.zeros(k_shape, dtype=dtype, device=device)
     v = torch.zeros(v_shape, dtype=dtype, device=device)
@@ -66,12 +60,11 @@ class KVCacheEntryBase:
       config: model_config.AttentionConfig,
       dtype: torch.dtype = torch.float32,
       device: torch.device = None,
-  ) -> "KVCacheEntryBase":
+      batch_size: int = 1,
+  ):
     """Build an instance of the class based on model config."""
-    shape = (BATCH_SIZE, kv_cache_max, config.num_query_groups, config.head_dim)
-    return cls._from_model_config(
-        kv_cache_max, config, shape, shape, dtype, device
-    )
+    shape = (batch_size, kv_cache_max, config.num_query_groups, config.head_dim)
+    return cls._from_model_config(shape, shape, dtype, device)
 
 
 @dataclasses.dataclass
@@ -93,24 +86,51 @@ class KVCacheEntryTransposed(KVCacheEntryBase):
       config: model_config.AttentionConfig,
       dtype: torch.dtype = torch.float32,
       device: torch.device = None,
-  ) -> "KVCacheEntryBase":
+      batch_size: int = 1,
+  ):
     """Build an instance of the class based on model config."""
-    num_kv_heads = config.num_query_groups
     k_shape = (
-        1,
-        BATCH_SIZE * num_kv_heads,
+        batch_size,
+        config.num_query_groups,
         kv_cache_max,
         config.head_dim,
-    )  # 1, bk, s, h
+    )  # b, k, s, h
     v_shape = (
-        1,
-        BATCH_SIZE * num_kv_heads,
+        batch_size,
+        config.num_query_groups,
         config.head_dim,
         kv_cache_max,
-    )  # 1, bk, h, s
-    return cls._from_model_config(
-        kv_cache_max, config, k_shape, v_shape, dtype, device
-    )
+    )  # b, k, h, s
+    return cls._from_model_config(k_shape, v_shape, dtype, device)
+
+
+def _flatten_kv_entry(
+    kv_e: KVCacheEntryBase,
+) -> Tuple[List[torch.Tensor], Any]:
+  return ([kv_e.k_cache, kv_e.v_cache], None)
+
+
+def _unflatten_kv_entry(
+    kv_entry_ty: Type[KVCacheEntryBase],
+    values: List[torch.Tensor],
+    unused_context: Any,
+) -> KVCacheEntryBase:
+  return kv_entry_ty(*values)
+
+
+pytree.register_pytree_node(
+    KVCacheEntryTransposed,
+    _flatten_kv_entry,
+    functools.partial(_unflatten_kv_entry, KVCacheEntryTransposed),
+    serialized_type_name="",
+)
+
+pytree.register_pytree_node(
+    KVCacheEntryBase,
+    _flatten_kv_entry,
+    functools.partial(_unflatten_kv_entry, KVCacheEntryBase),
+    serialized_type_name="",
+)
 
 
 @dataclasses.dataclass
@@ -126,13 +146,15 @@ class KVCacheBase:
       config: model_config.ModelConfig,
       dtype: torch.dtype = torch.float32,
       device: torch.device = None,
-  ) -> "KVCacheBase":
+      batch_size: int = 1,
+  ):
     caches = [
         kv_entry_cls.from_model_config(
             config.kv_cache_max,
             config.block_config(idx).attn_config,
             dtype,
             device,
+            batch_size,
         )
         for idx in range(config.num_layers)
     ]
@@ -145,7 +167,8 @@ class KVCacheBase:
       config: model_config.ModelConfig,
       dtype: torch.dtype = torch.float32,
       device: torch.device = None,
-  ) -> "KVCacheBase":
+      batch_size: int = 1,
+  ):
     """Build an instance of the class based on model config.
 
     Args:
@@ -154,12 +177,19 @@ class KVCacheBase:
           Defaults to torch.float32.
         device (torch.device, optional): The device placement of the cache
           tensors. Defaults to None.
+        batch_size (int, optional): The batch size of the cache tensors.
+          Defaults to 1.
 
     Returns:
         KVCacheBase: The created cache object.
     """
+    assert batch_size == 1, "Batch size must be 1 for KV Cache."
     return cls._from_model_config(
-        KVCacheEntryBase, config=config, dtype=dtype, device=device
+        KVCacheEntryBase,
+        config=config,
+        dtype=dtype,
+        device=device,
+        batch_size=batch_size,
     )
 
   def flatten(self) -> List[torch.Tensor]:
@@ -177,9 +207,14 @@ class KVCacheBTNH(KVCacheBase):
       config: model_config.ModelConfig,
       dtype: torch.dtype = torch.float32,
       device: torch.device = None,
-  ) -> "KVCacheBTNH":
+      batch_size: int = 1,
+  ):
     return cls._from_model_config(
-        KVCacheEntryBTNH, config=config, dtype=dtype, device=device
+        KVCacheEntryBTNH,
+        config=config,
+        dtype=dtype,
+        device=device,
+        batch_size=batch_size,
     )
 
 
@@ -192,9 +227,14 @@ class KVCacheTransposed(KVCacheBase):
       config: model_config.ModelConfig,
       dtype: torch.dtype = torch.float32,
       device: torch.device = None,
-  ) -> "KVCacheBTNH":
+      batch_size: int = 1,
+  ):
     return cls._from_model_config(
-        KVCacheEntryTransposed, config=config, dtype=dtype, device=device
+        KVCacheEntryTransposed,
+        config=config,
+        dtype=dtype,
+        device=device,
+        batch_size=batch_size,
     )
 
 
@@ -218,7 +258,10 @@ def _flatten_kvc_with_keys(kvc: KVCacheBase) -> Tuple[List, List]:
 
 
 def _unflatten_kvc(
-    values: List[torch.Tensor], context: Tuple[List, List]
+    kv_ty: Type[KVCacheBase],
+    kv_entry_type: Type[KVCacheEntryBase],
+    values: List[torch.Tensor],
+    context: Tuple[List, List],
 ) -> KVCacheBase:
   assert len(values) % 2 == 0, "Found odd number of K and V entries."
   num_layers = len(values) // 2
@@ -228,18 +271,18 @@ def _unflatten_kvc(
     k_cache_idx = flat_names.index(f"k_{i}")
     v_cache_idx = flat_names.index(f"v_{i}")
     kv_entries.append(
-        KVCacheEntryBase(
-            k_cache=values[k_cache_idx], v_cache=values[v_cache_idx]
-        )
+        kv_entry_type(k_cache=values[k_cache_idx], v_cache=values[v_cache_idx])
     )
-  obj = KVCacheBase(tuple(kv_entries))
+  obj = kv_ty(tuple(kv_entries))
   return obj
 
 
 pytree.register_pytree_node(
     KVCacheTransposed,
     _flatten_kvc,
-    _unflatten_kvc,
+    functools.partial(
+        _unflatten_kvc, KVCacheTransposed, KVCacheEntryTransposed
+    ),
     flatten_with_keys_fn=_flatten_kvc_with_keys,
     serialized_type_name="",
 )
@@ -247,7 +290,7 @@ pytree.register_pytree_node(
 pytree.register_pytree_node(
     KVCacheBase,
     _flatten_kvc,
-    _unflatten_kvc,
+    functools.partial(_unflatten_kvc, KVCacheBase, KVCacheEntryBase),
     flatten_with_keys_fn=_flatten_kvc_with_keys,
     serialized_type_name="",
 )
@@ -258,7 +301,6 @@ def update(
     input_pos: torch.Tensor,
     k_slice: torch.Tensor,
     v_slice: torch.Tensor,
-    use_dus: bool = True,
 ) -> KVCacheEntryBase:
   """Out of place update of Cache buffer.
 
@@ -309,6 +351,10 @@ def _update_kv_impl(
   positions = input_pos.clone()
   k_slice_indices = _get_slice_indices(positions, cache_dim, k_ts_idx)
   v_slice_indices = _get_slice_indices(positions, cache_dim, v_ts_idx)
-  k = dynamic_update_slice(cache.k_cache, k_slice, [x for x in k_slice_indices])
-  v = dynamic_update_slice(cache.v_cache, v_slice, [x for x in v_slice_indices])
+  k = dus_utils.dynamic_update_slice(
+      cache.k_cache, k_slice, [x for x in k_slice_indices]
+  )
+  v = dus_utils.dynamic_update_slice(
+      cache.v_cache, v_slice, [x for x in v_slice_indices]
+  )
   return KVCacheEntryTransposed(k, v)
