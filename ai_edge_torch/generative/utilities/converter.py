@@ -24,6 +24,8 @@ from ai_edge_torch.generative.quantize import quant_recipes
 from ai_edge_torch.generative.utilities.model_builder import ExportConfig
 import torch
 
+from typing import Optional, Union
+
 
 class ExportableModule(torch.nn.Module):
 
@@ -46,7 +48,9 @@ def convert_to_tflite(
     quantize: bool = True,
     config: cfg.ModelConfig = None,
     lora_ranks: Optional[list[int]] = None,
-    export_config: ExportConfig = None,
+    export_config: ExportConfig = None,   
+    *, 
+    _saved_model_dir: Optional[str] = None,
 ):
   """Converts a nn.Module model to multi-signature tflite model.
 
@@ -129,6 +133,7 @@ def convert_to_tflite(
       config,
       loras,
       export_config,
+      _saved_model_dir=_saved_model_dir,
   )
 
 
@@ -141,6 +146,8 @@ def _export_helper(
     config: cfg.ModelConfig,
     loras: list[None | lora_utils.LoRA],
     export_config: ExportConfig,
+    *,
+    _saved_model_dir: Optional[str] = None
 ):
   """Helper function to export a model to tflite."""
   prefill_tokens_list = []
@@ -234,5 +241,5 @@ def _export_helper(
         sample_kwargs=sample_kwargs,
     )
 
-  edge_model = converter.convert(quant_config=quant_config)
+  edge_model = converter.convert(quant_config=quant_config, _saved_model_dir=_saved_model_dir)
   edge_model.export(output_file)

@@ -66,6 +66,11 @@ _LORA_RANKS = flags.DEFINE_multi_integer(
     None,
     'If set, the model will be converted with the provided list of LoRA ranks.',
 )
+_SAVED_MODEL_PATH = flags.DEFINE_string(
+    'saved_model_path',
+    '/tmp/',
+    'The path to the saved_model model (tensorflow model format), which is an intermediate result during the conversion flow.',
+)
 
 _BUILDER = {
     '1b': llama.build_1b_model,
@@ -89,6 +94,7 @@ def main(_):
       quantize=_QUANTIZE.value,
       lora_ranks=_LORA_RANKS.value,
       export_config=ExportConfig(),
+      _saved_model_dir=_SAVED_MODEL_PATH.value,
   )
 
 
